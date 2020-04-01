@@ -1,0 +1,41 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <string name="app_name">"虹膜服务"</string>
+    <string name="notice">"请调整到30CM距离眼睛注视中心的呼吸圈，双眼分布在两侧，尽可能保持稳定，将很快获得成功"</string>
+	<string name="recognize">"识别"</string>
+	<string name="register">"注册"</string>
+	<string name="clear">"清除数据"</string>
+	<string name="chose">"用户头像选择"</string>
+	<string name="version">"版本号V_2.5"</string>
+	<!-- Add start by qinchun -->
+	<string name="left_eye">左眼</string>
+	<string name="right_eye">右眼</string>
+	<string name="wrong_distance">距离不对</string>
+	<string name="eyes_out_of_range">眼睛出界</string>
+	<string name="too_far">距离太远</string>
+	<string name="no_enough_closure">眼睛闭合度不够</string>
+	<string name="eye_strabismus">眼睛斜视</string>
+	<string name="eye_hold">保持</string>
+    <string name="register_twice">请调整姿势并开始第二组模板注册：</string>
+    <string name="register_third">请调整姿势并开始第三组模板注册：</string>
+    <string name="Initialize_camera_error">初始化相机错误</string>
+    <string name="Prompt">提示</string>
+    <string name="ensure">确定</string>
+    <string name="recognize_success">识别成功</string>
+    <string name="register_success">注册成功</string>
+    <string name="recognize_fail">识别失败</string>
+    <string name="register_fail">注册失败</string>
+    <string name="clean_up">清理成功</string>
+    <string name="please_register">注册用户不存在 请先注册</string>
+    <string name="create_success">创建工作目录成功</string>
+    <string name="create_fail">创建工作目录失败</string>
+	<!-- Add end by qinchun -->
+    <!-- add for app lock begin -->
+    <string name="app_lock">应用锁</string>
+    <string name="app_un_lock_title">打开应用程序锁</string>
+    <string name="lock_app_tile">加锁应用程序</string>
+    <string name="lock_app_sumary">请选择需要加锁的应用程序</string>
+    <string name="gallery_camera">相机和相册</string>
+    <string name="load_apps">加载应用程序</string>
+    <!-- add for app lock end -->
+</resources>

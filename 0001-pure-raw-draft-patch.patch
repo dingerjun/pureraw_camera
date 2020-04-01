@@ -1,0 +1,528 @@
+From f37b76fb19aa2dfff32a7f9d00f210ffe6f4fbee Mon Sep 17 00:00:00 2001
+From: "erjun.ding" <dingerjun@gmail.com>
+Date: Sat, 23 Apr 2016 01:37:51 +0800
+Subject: [PATCH] =?UTF-8?q?pure=20raw=20draft=20patch:=20k#=20=E8=AF=B7?=
+ =?UTF-8?q?=E4=B8=BA=E6=82=A8=E7=9A=84=E5=8F=98=E6=9B=B4=E8=BE=93=E5=85=A5?=
+ =?UTF-8?q?=E6=8F=90=E4=BA=A4=E8=AF=B4=E6=98=8E=E3=80=82=E4=BB=A5=20'#'=20?=
+ =?UTF-8?q?=E5=BC=80=E5=A7=8B=E7=9A=84=E8=A1=8C=E5=B0=86=E8=A2=AB=E5=BF=BD?=
+ =?UTF-8?q?=E7=95=A5=EF=BC=8C=E8=80=8C=E4=B8=80=E4=B8=AA=E7=A9=BA=E7=9A=84?=
+ =?UTF-8?q?=E6=8F=90=E4=BA=A4?=
+MIME-Version: 1.0
+Content-Type: text/plain; charset=UTF-8
+Content-Transfer-Encoding: 8bit
+
+---
+ mtkcam/core/camnode/IspSyncControl.cpp             |   5 +-
+ mtkcam/core/camnode/inc/pass2nodeImpl.h            |  16 +-
+ mtkcam/core/camnode/pass1node.cpp                  |  72 +++++++-
+ mtkcam/core/camnode/pass2node.common.cpp           | 189 ++++++++++++++++++++-
+ mtkcam/v1/adapter/CamNode/DefaultCtrlNode.cpp      |   7 +-
+ .../MtkDefault/MtkDefaultCamAdapter.Preview.cpp    |  17 +-
+ .../adapter/MtkDefault/inc/MtkDefaultCamAdapter.h  |   4 +
+ 7 files changed, 295 insertions(+), 15 deletions(-)
+
+diff --git a/mtkcam/core/camnode/IspSyncControl.cpp b/mtkcam/core/camnode/IspSyncControl.cpp
+index 2cfc435..9d1a74c 100644
+--- a/mtkcam/core/camnode/IspSyncControl.cpp
++++ b/mtkcam/core/camnode/IspSyncControl.cpp
+@@ -496,7 +496,10 @@ IspSyncControlImp(MUINT32 const sensorIdx)
+     , mpCbZoomFunc(NULL)
+     , muHwFlag(0)
+     , mbPureRaw(MFALSE)
+-    , muPureRawPeriod(1)
++		//add iris unlock
++//    , muPureRawPeriod(0xFFFFFFFF)
++    , muPureRawPeriod(0x1)
++		//add iris unlock
+ {
+     MY_LOGD("new instance(0x%x), sensorIdx(%d)", this, getSensorIdx());
+     mlZoomRatio.clear();
+diff --git a/mtkcam/core/camnode/inc/pass2nodeImpl.h b/mtkcam/core/camnode/inc/pass2nodeImpl.h
+index 4b209ec..917cb91 100644
+--- a/mtkcam/core/camnode/inc/pass2nodeImpl.h
++++ b/mtkcam/core/camnode/inc/pass2nodeImpl.h
+@@ -129,10 +129,15 @@ class Pass2NodeImpl : public Pass2Node
+         DECLARE_ICAMTHREADNODE_INTERFACES();
+ 
+         virtual MBOOL   waitCurEnqueFrameDone();
+-
++			//add iris unlock
++		virtual void	setirisaddr(MUINT8* irisbuff,Mutex* lockii);
++			//add iris unlock
+         // for capture only: type <0:none, 1:hwnr, 2:swnr>
+         virtual MBOOL  setNRType(MUINT32 const type) {return MFALSE;};
+-
++			//add iris unlock
++		MUINT8* irisread;
++		Mutex* irislock;
++			//add iris unlock
+     protected: // operations
+ 
+         #define MAX_DST_PORT_NUM        (4)
+@@ -161,7 +166,9 @@ class Pass2NodeImpl : public Pass2Node
+         virtual MBOOL  getPass2Buffer(vector<p2data>& vP2data) = 0;
+         MBOOL   enquePass2(MBOOL const doCallback);
+         MBOOL   dequePass2();
+-
++			//add iris unlock
++		void readirisaddr(MUINT8* irisbuff,int w,int h,int strides);
++	//add iris unlock
+ 
+         // use callback
+         MBOOL   pushBuf(MUINT32 const data, IImageBuffer* const buf, MUINT32 const ext);
+@@ -204,6 +211,9 @@ class Pass2NodeImpl : public Pass2Node
+ 
+         // dst deque order, should be overwriten by subclass
+         MUINT32                 muDequeOrder[MAX_DST_PORT_NUM];
++			//add iris unlock
++		MUINT8*					rmbbuff;
++			//add iris unlock
+ };
+ 
+ 
+diff --git a/mtkcam/core/camnode/pass1node.cpp b/mtkcam/core/camnode/pass1node.cpp
+index e6629d2..7eeefb5 100644
+--- a/mtkcam/core/camnode/pass1node.cpp
++++ b/mtkcam/core/camnode/pass1node.cpp
+@@ -95,6 +95,8 @@ using namespace NSCam::NSIoPipe;
+ #include <pthread.h>
+ #include <sys/prctl.h>
+ 
++using android::Mutex;
++
+ #if defined(__func__)
+ #undef __func__
+ #endif
+@@ -156,7 +158,39 @@ typedef struct HwPortConfig{
+     MBOOL           mPureRaw;
+     MUINT32         mStrideInByte[3];
+ }HwPortConfig_t;
+-
++	//add iris unlock
++/*
++bool
++saveBufToFile(char const*const fname, uint8_t *const buf, uint32_t const size)
++{
++    int nw, cnt = 0;
++    uint32_t written = 0;
++
++   
++    int fd = ::open(fname, O_RDWR | O_CREAT | O_TRUNC, 0666);
++    if (fd < 0) {
++       
++        return false;
++    }
++
++    
++    while (written < size) {
++        nw = ::write(fd,
++                     buf + written,
++                     size - written);
++        if (nw < 0) {
++    
++            break;
++        }
++        written += nw;
++        cnt++;
++    }
++    
++    ::close(fd);
++    return true; 
++}  
++*/
++	//add iris unlock
+ 
+ /*******************************************************************************
+ *
+@@ -301,7 +335,9 @@ class Pass1NodeImpl : public Pass1Node
+         MBOOL    dropFrame(QBufInfo const & qBufInfo);
+ 
+         MUINT32  getRingBufCnt() const { return mInitCfg.muRingBufCnt; }
+-
++			//add iris unlock
++		void saveiris(unsigned char* irisbuf,int size);
++			//add iris unlock
+     private:
+ 
+         // sensor related
+@@ -1388,8 +1424,22 @@ processBufOp(BUF_OP const op, QBufInfo const & halCamIOQBuf)
+     }
+     return ret;
+ }
+-
+-
++	//add iris unlock
++void
++Pass1NodeImpl::saveiris(MUINT8* irisbuf,int size)
++{
++	if(mInitCfg.lockl == NULL)
++	{
++		return;
++	}
++	Mutex::Autolock lock(*(mInitCfg.lockl));
++	if(mInitCfg.ptrbuff != NULL||irisbuf==NULL)
++	{
++		memcpy(mInitCfg.ptrbuff,irisbuf,size);
++	}
++	return;
++}
++	//add iris unlock
+ /*******************************************************************************
+  *
+  ********************************************************************************/
+@@ -1509,6 +1559,20 @@ dequeLoop()
+                 bIsDynamicPureRaw = MTRUE;
+             }
+         }
++/*
++			//add iris unlock
++		else
++		{
++			MY_LOGD("PORT_Rrzo, sensor raw type = %d", iter->mMetaData.mRawType);
++
++		}
++		unsigned char* ptr = (MUINT8*)iter->mBuffer->getBufVA(0);
++		if(	iter->mMetaData.mRawType == 1)
++		{
++			saveiris(ptr,iter->mBuffer->getBufSizeInBytes(0));
++		}
++			//add iris unlock
++*/
+         ret = ret && handlePostBuffer( mapToNodeDataType(iter->mPortID, bIsDynamicPureRaw), (MUINTPTR)iter->mBuffer, 0);
+         //
+         MUINT32 fakedata = mapToFakeDataType(iter->mPortID);
+diff --git a/mtkcam/core/camnode/pass2node.common.cpp b/mtkcam/core/camnode/pass2node.common.cpp
+index 005afec..c744988 100644
+--- a/mtkcam/core/camnode/pass2node.common.cpp
++++ b/mtkcam/core/camnode/pass2node.common.cpp
+@@ -143,6 +143,133 @@ namespace NSCamNode {
+ #define PASS2_TIMEOUT      ((MINT64)5000000000) //ns
+ 
+ 
++	//add iris unlock
++MUINT32 
++covertoraw(MUINT8* src,MUINT8* dst,MUINT32 w,MUINT32 h,MUINT32 stride)
++{
++
++	MUINT32 depth = (stride*8)/w;
++	unsigned char *lineBuf;
++	int hi,wi;
++	int si = w/4;
++	int li = w%4;
++	unsigned char byte0; 
++	unsigned char byte1; 
++	unsigned char byte2; 
++	unsigned char byte3; 
++	unsigned char byte4; 
++	unsigned char byte5; 
++	depth = (depth==15)?10:depth;
++	switch(depth)
++	{
++		case 8:
++			CAM_LOGD("[zzh] cover raw8");
++			memcpy(dst,src,stride*h);
++			break;
++		case 10:
++			CAM_LOGD("[zzh] cover raw10");
++			for(hi=0;hi<h;hi++)
++			{
++				lineBuf = src + hi * stride;
++				for(wi=0;wi<si;wi++) //(byte0 + ((byte1 & 0x3) << 8)
++				{
++					byte0 = *(lineBuf++); 
++					byte1 = *(lineBuf++);
++					byte2 = *(lineBuf++);
++					byte3 = *(lineBuf++);
++					byte4 = *(lineBuf++); 
++					*(dst++) = (byte0 +((byte1 & 0x3) << 8))>>2; 
++					*(dst++) = (((byte1 & 0xFC) >> 2)+(((byte2 & 0xf) << 6)))>>2; 
++					*(dst++) = (((byte2 & 0xf0) >> 4)+((byte3 & 0x3f) << 4))>>2; 
++					*(dst++) = (((byte3 & 0xc0) >> 6)+(byte4 << 2))>>2; 
++				}
++				if (li != 0) 
++			    {
++					switch(li)
++					{
++						case 1:
++							byte0 = *(lineBuf++); 
++							byte1 = *(lineBuf++);
++							*(dst++) = (byte0 +((byte1 & 0x3) << 8))>>2; 
++							 break;
++						case 2:
++							byte0 = *(lineBuf++); 
++							byte1 = *(lineBuf++);
++							byte2 = *(lineBuf++);
++							*(dst++) = (byte0 +((byte1 & 0x3) << 8))>>2; 
++							*(dst++) = ((byte1 & 0xFC) >> 2)+((byte2 & 0xf) << 6)>>2;  
++							break;
++						case 3:
++							byte0 = *(lineBuf++); 
++							byte1 = *(lineBuf++);
++							byte2 = *(lineBuf++);
++							byte3 = *(lineBuf++);
++							*(dst++) = (byte0 +((byte1 & 0x3) << 8))>>2; 
++							*(dst++) = (((byte1 & 0xFC) >> 2)+((byte2 & 0xf) << 6))>>2; 
++							*(dst++) = (((byte2 & 0xf0) >> 4)+((byte3 & 0x3f) << 4))>>2; 
++							break;
++					}
++				}
++						   
++			}
++		break;
++		case 12:
++			CAM_LOGD("[zzh] cover raw12");
++			for(hi=0;hi<h;hi++)
++			{
++				lineBuf = src + hi * stride;
++				for(wi=0;wi<si;wi++)
++				{
++					byte0 = *(lineBuf++); 
++					byte1 = *(lineBuf++);
++					byte2 = *(lineBuf++);
++					byte3 = *(lineBuf++);
++					byte4 = *(lineBuf++); 
++					byte5 = *(lineBuf++); 
++					*(dst++) = (byte0 + ((byte1 & 0xf) << 8)) >> 4; 
++					*(dst++) = ((byte1 >> 4) + (byte2 << 4)) >> 4; 
++					*(dst++) = (byte3 + ((byte4 & 0xf) << 8)) >> 4; 
++					*(dst++) = ((byte4 >> 4) + (byte5 << 4)) >> 4; 
++				}
++				if (li != 0) 
++			    {
++					switch(li)
++					{
++						case 1:
++							byte0 = *(lineBuf++); 
++							byte1 = *(lineBuf++);
++							*(dst++) = (byte0 + ((byte1 & 0xf) << 8)) >> 4; 
++							 break;
++						case 2:
++							byte0 = *(lineBuf++); 
++							byte1 = *(lineBuf++);
++							byte2 = *(lineBuf++);
++							*(dst++) = (byte0 + ((byte1 & 0xf) << 8)) >> 4; 
++							*(dst++) = ((byte1 >> 4) + (byte2 << 4)) >> 4; 
++							break;
++						case 3:
++							byte0 = *(lineBuf++); 
++							byte1 = *(lineBuf++);
++							byte2 = *(lineBuf++);
++							byte3 = *(lineBuf++);
++							byte4 = *(lineBuf++); 
++							*(dst++) = (byte0 + ((byte1 & 0xf) << 8)) >> 4; 
++							*(dst++) = ((byte1 >> 4) + (byte2 << 4)) >> 4; 
++							*(dst++) = (byte3 + ((byte4 & 0xf) << 8)) >> 4; 
++							break;
++					}
++				}
++						   
++			}
++			break;
++		default:
++			CAM_LOGD("[zzh] cover default");
++			memcpy(dst,src,stride*h);
++			break;
++	}
++	return 0;
++}
++	//add iris unlock
+ /*******************************************************************************
+ *
+ ********************************************************************************/
+@@ -214,6 +341,13 @@ Pass2NodeImpl(Pass2NodeType const type)
+     , mpPostProcPipe(NULL)
+     , mpIspSyncCtrlHw(NULL)
+ {
++	//add iris unlock
++	irisread = NULL;
++	irislock = NULL;
++
++	rmbbuff = (unsigned char*)malloc(1920*1080*2);
++	memset(rmbbuff,0,1920*1080*2);	
++		//add iris unlock
+ }
+ 
+ 
+@@ -223,6 +357,12 @@ Pass2NodeImpl(Pass2NodeType const type)
+ Pass2NodeImpl::
+ ~Pass2NodeImpl()
+ {
++	//add iris unlock
++	if(rmbbuff != NULL)
++	{
++		free(rmbbuff);
++	}
++		//add iris unlock
+ }
+ 
+ 
+@@ -296,7 +436,8 @@ onStart()
+     if( !moduleStart() )
+     {
+         MY_LOGE("moduleStart() failed");
+-        return MFALSE;
++        //return MFALSE;
++        return MTRUE;
+     }
+ 
+     FUNC_END;
+@@ -811,6 +952,11 @@ handleP2Done(QParams& rParams)
+ {
+     CAM_TRACE_FMT_BEGIN("deqP2:%d", muDeqFrameCnt);
+     MBOOL ret = MFALSE;
++		//add iris unlock
++	static int test  = 0;
++	unsigned char* ptr = NULL;
++	char filename[100] = {0};
++		//add iris unlock
+     Vector<Input>::const_iterator iterIn;
+     Vector<Output>::const_iterator iterOut;
+     vector<IImageBuffer*> vpDstBufAddr;
+@@ -843,8 +989,11 @@ handleP2Done(QParams& rParams)
+     {
+         //MY_LOGD("In PortID(0x%08X)",portId);
+         MUINT32 nodeDataType = mapToNodeDataType( iterIn->mPortID );
+-        handleReturnBuffer( nodeDataType, (MUINTPTR)iterIn->mBuffer, 0 );
+-        //
++		
++			//add iris unlock
++		unsigned char* ptr = (MUINT8*)iterIn->mBuffer->getBufVA(0);
++			//add iris unlock
++		handleReturnBuffer( nodeDataType, (MUINTPTR)iterIn->mBuffer, 0 );
+     }
+     //
+     vpDstBufAddr.clear();
+@@ -864,6 +1013,13 @@ handleP2Done(QParams& rParams)
+         {
+             //MY_LOGD("Out PortID(0x%08X)",portId);
+             MUINT32 nodeDataType = mapToNodeDataType( iterOut->mPortID );
++				//add iris unlock
++			unsigned char* ptr = (MUINT8*)iterOut->mBuffer->getBufVA(0);
++			if(iterOut->mBuffer->getImgFormat()==17)
++			{
++			//	readirisaddr((MUINT8*)iterOut->mBuffer->getBufVA(0),iterOut->mBuffer->getImgSize().w,iterOut->mBuffer->getImgSize().h,iterOut->mBuffer->getImgSize().w*10/8);
++			}
++				//add iris unlock
+             handlePostBuffer( nodeDataType, (MUINTPTR)iterOut->mBuffer, 0 );
+             vpDstBufAddr.push_back(iterOut->mBuffer);
+         }
+@@ -965,7 +1121,34 @@ mapToNodeDataType(PortID const portId)
+     return 0;
+ }
+ 
++//add iris unlock
++void
++Pass2NodeImpl::
++setirisaddr(MUINT8* irisbuff,Mutex* lockii)
++{
++	irisread = irisbuff;
++	irislock = lockii;
++}
++//add iris unlock
++//add iris unlock
++void
++Pass2NodeImpl::
++readirisaddr(MUINT8* irisbuff,int w,int h,int strides)
++{
+ 
++	if(irislock == NULL)
++	{
++		return;
++	}
++	Mutex::Autolock lock(*(irislock));
++	if(irisread == NULL||irisbuff==NULL)
++	{
++		return;
++	}
++	covertoraw(irisread,rmbbuff,w,h,strides);
++	memcpy(irisbuff,rmbbuff,w*h);
++}
++	//add iris unlock
+ /*******************************************************************************
+ *
+ ********************************************************************************/
+diff --git a/mtkcam/v1/adapter/CamNode/DefaultCtrlNode.cpp b/mtkcam/v1/adapter/CamNode/DefaultCtrlNode.cpp
+index cccbbb3..dc92e04 100644
+--- a/mtkcam/v1/adapter/CamNode/DefaultCtrlNode.cpp
++++ b/mtkcam/v1/adapter/CamNode/DefaultCtrlNode.cpp
+@@ -455,7 +455,9 @@ onInit()
+             }
+             else
+             {
+-                mpIspSyncCtrl->setPass1PureRaw(MFALSE, 0);
++			//add iris unlock
++                //mpIspSyncCtrl->setPass1PureRaw(MTRUE, 0xFFFFFFFF);
++				//add iris unlock
+             }
+         }
+         else
+@@ -464,6 +466,9 @@ onInit()
+         }
+     }
+     //
++	//add iris unlock
++     //mpIspSyncCtrl->setPass1PureRaw(MTRUE, 0xFFFFFFFF);
++	 //add iris unlock
+     #ifdef MTK_CAM_VHDR_SUPPORT
+     if(mpIspSyncCtrl->getHdrState() != SENSOR_VHDR_MODE_NONE)
+     {
+diff --git a/mtkcam/v1/adapter/MtkDefault/MtkDefaultCamAdapter.Preview.cpp b/mtkcam/v1/adapter/MtkDefault/MtkDefaultCamAdapter.Preview.cpp
+index e0b6874..52e8d84 100644
+--- a/mtkcam/v1/adapter/MtkDefault/MtkDefaultCamAdapter.Preview.cpp
++++ b/mtkcam/v1/adapter/MtkDefault/MtkDefaultCamAdapter.Preview.cpp
+@@ -132,7 +132,10 @@ onHandleStartPreview()
+     MINT32 sensorFps = 0;
+     //
+     MBOOL bIsForceRatation = MFALSE, bConnectFullRaw = MFALSE, bConnectFeatrue = MFALSE, bSlowMotion = MFALSE, bPdafMode = MFALSE;
+-    MINT32 rawType = SENSOR_PROCESS_RAW, vdoWidth = 0, vdoHeight = 0, prvWidth = 0, prvHeight = 0;
++    //add iris unlock
++	//MINT32 rawType = SENSOR_PURE_RAW, vdoWidth = 0, vdoHeight = 0, prvWidth = 0, prvHeight = 0;
++	MINT32 rawType = SENSOR_PROCESS_RAW, vdoWidth = 0, vdoHeight = 0, prvWidth = 0, prvHeight = 0;
++//add iris unlock
+     MUINT32 pass1RingBufNum = 3, sensorScenario = 0, rotationAnagle = 0;
+     DefaultCtrlNode::MODE_TYPE modeType = DefaultCtrlNode::MODE_IDLE;
+     DefaultCtrlNode::CONFIG_INFO configInfo;
+@@ -563,7 +566,9 @@ onHandleStartPreview()
+     //
+     if (bPdafMode)
+     {
+-        rawType = SENSOR_DYNAMIC_PURE_RAW;
++	//add iris unlock
++        rawType = 0;
++		//add iris unlock
+         // create PDAF node if support PDAF
+         mpPdafNode = PdafNode::createInstance(getOpenId());
+     }    
+@@ -573,7 +578,13 @@ onHandleStartPreview()
+                         pass1RingBufNum,
+                         10,
+                         mPreviewMaxFps,
+-                        rawType);
++                        rawType,
++						//add iris unlock
++                        //&mirisLockMtx,
++                        NULL,
++                        //mpirisBuffer);
++                        NULL);
++						//add iris unlock
+     //
+     if  ( ! BaseCamAdapter::init() ) 
+     {
+diff --git a/mtkcam/v1/adapter/MtkDefault/inc/MtkDefaultCamAdapter.h b/mtkcam/v1/adapter/MtkDefault/inc/MtkDefaultCamAdapter.h
+index 1fd7816..a9e70d9 100644
+--- a/mtkcam/v1/adapter/MtkDefault/inc/MtkDefaultCamAdapter.h
++++ b/mtkcam/v1/adapter/MtkDefault/inc/MtkDefaultCamAdapter.h
+@@ -286,6 +286,10 @@ protected:  ////                    Data Members.
+     //
+     PdafNode*                       mpPdafNode;
+     //
++	//add iris unlock
++    //unsigned char					mpirisBuffer[3600*1080];
++    //	Mutex                   		mirisLockMtx;
++	//add iris unlock
+     CapBufMgr*                      mpCapBufMgr;
+     //
+     bool                            mbTakePicPrvNotStop;
+-- 
+2.5.0
+
